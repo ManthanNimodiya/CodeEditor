@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import FileTree from "./FileTree";
 import EditorPane from "./EditorPane";
@@ -131,7 +131,15 @@ export default function Workspace() {
     if (typeof dir === "string") openFolderAsProject(dir);
   }
 
-  function closeProject(id: string) {
+  async function closeProject(id: string) {
+    const project = projects.find((p) => p.id === id);
+    if (project?.files.some((f) => f.dirty)) {
+      const shouldClose = await confirmDialog(`"${project.name}" has unsaved changes. Close anyway?`, {
+        title: "Unsaved changes",
+        kind: "warning",
+      });
+      if (!shouldClose) return;
+    }
     setProjects((prev) => {
       const next = prev.filter((p) => p.id !== id);
       setActiveProjectId((current) => (current === id ? next[next.length - 1]?.id ?? null : current));
@@ -165,7 +173,16 @@ export default function Workspace() {
     updateProject(projectId, (p) => ({ ...p, activeFile: path }));
   }
 
-  function closeFile(projectId: string, path: string) {
+  async function closeFile(projectId: string, path: string) {
+    const project = projects.find((p) => p.id === projectId);
+    const file = project?.files.find((f) => f.path === path);
+    if (file?.dirty) {
+      const shouldClose = await confirmDialog(`"${file.name}" has unsaved changes. Close anyway?`, {
+        title: "Unsaved changes",
+        kind: "warning",
+      });
+      if (!shouldClose) return;
+    }
     updateProject(projectId, (p) => {
       const files = p.files.filter((f) => f.path !== path);
       const activeFile = p.activeFile === path ? files[files.length - 1]?.path ?? null : p.activeFile;

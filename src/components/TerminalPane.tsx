@@ -40,8 +40,11 @@ export default function TerminalPane({ id, cwd, visible }: TerminalPaneProps) {
     );
 
     const resizeObserver = new ResizeObserver(() => {
+      if (containerRef.current && containerRef.current.clientWidth === 0) return;
       fit.fit();
-      resizePty(id, term.cols, term.rows).catch(() => {});
+      if (term.cols > 0 && term.rows > 0) {
+        resizePty(id, term.cols, term.rows).catch(() => {});
+      }
     });
     resizeObserver.observe(containerRef.current);
 
