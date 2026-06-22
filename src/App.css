@@ -1,0 +1,275 @@
+:root {
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  color: #d4d4d4;
+  background-color: #1e1e1e;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+button {
+  border-radius: 4px;
+  border: 1px solid #3c3c3c;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #d4d4d4;
+  background-color: #2d2d2d;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #3a3a3a;
+}
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background-color: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  flex-shrink: 0;
+}
+
+.toolbar-path {
+  margin-left: 10px;
+  color: #8a8a8a;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  background-color: #252526;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.file-tree {
+  padding: 6px 0;
+}
+
+.file-tree-row {
+  padding: 3px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.file-tree-row:hover {
+  background-color: #2a2d2e;
+}
+
+.file-tree-caret {
+  display: inline-block;
+  width: 12px;
+  color: #8a8a8a;
+}
+
+.context-menu {
+  position: fixed;
+  background-color: #2d2d2d;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  padding: 4px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  min-width: 160px;
+}
+
+.context-menu-item {
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #d4d4d4;
+}
+
+.context-menu-item:hover {
+  background-color: #094771;
+}
+
+.divider-vertical {
+  width: 4px;
+  cursor: col-resize;
+  background-color: #1e1e1e;
+  flex-shrink: 0;
+}
+
+.divider-vertical:hover {
+  background-color: #007acc;
+}
+
+.divider-horizontal {
+  height: 4px;
+  cursor: row-resize;
+  background-color: #1e1e1e;
+  flex-shrink: 0;
+}
+
+.divider-horizontal:hover {
+  background-color: #007acc;
+}
+
+.main-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.project-tab-bar {
+  display: flex;
+  background-color: #2d2d2d;
+  border-bottom: 1px solid #3c3c3c;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.project-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 12px;
+  border-right: 1px solid #3c3c3c;
+  cursor: pointer;
+  white-space: nowrap;
+  color: #969696;
+}
+
+.project-tab.active {
+  background-color: #007acc;
+  color: #ffffff;
+}
+
+.project-tab-add {
+  color: #969696;
+  font-weight: bold;
+}
+
+.project-tab-icon {
+  font-size: 11px;
+}
+
+.tab-bar {
+  display: flex;
+  background-color: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-right: 1px solid #3c3c3c;
+  cursor: pointer;
+  white-space: nowrap;
+  color: #969696;
+}
+
+.tab.active {
+  background-color: #1e1e1e;
+  color: #ffffff;
+}
+
+.tab-add {
+  color: #969696;
+  font-weight: bold;
+}
+
+.tab-rename-input {
+  background-color: #1e1e1e;
+  border: 1px solid #007acc;
+  border-radius: 2px;
+  color: #ffffff;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 1px 4px;
+  width: 90px;
+}
+
+.tab-close {
+  color: #969696;
+}
+
+.tab-close:hover {
+  color: #ffffff;
+}
+
+.editor-area {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  height: 100%;
+  color: #5a5a5a;
+}
+
+.empty-state-watermark {
+  font-size: 44px;
+  font-weight: 600;
+  color: #3a3a3a;
+  letter-spacing: 1px;
+  text-align: center;
+  user-select: none;
+}
+
+.empty-state-hint {
+  font-size: 13px;
+  color: #5a5a5a;
+}
+
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  background-color: #1e1e1e;
+  border-top: 1px solid #3c3c3c;
+  flex-shrink: 0;
+}
+
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 8px;
+}
+
+.terminal-host > div {
+  height: 100%;
+}
