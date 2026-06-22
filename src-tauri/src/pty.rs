@@ -34,6 +34,10 @@ pub fn pty_spawn(
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let mut cmd = CommandBuilder::new(shell);
+    // GUI-launched apps on macOS inherit a minimal PATH (no .zprofile/.bash_profile
+    // sourcing), so without -l, tools installed via Homebrew/nvm/etc. won't resolve.
+    cmd.arg("-l");
+    cmd.env("TERM", "xterm-256color");
     cmd.cwd(cwd.unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string())));
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
