@@ -1,4 +1,5 @@
 import Editor from "@monaco-editor/react";
+import DocxEditor from "./DocxEditor";
 
 const LANGUAGE_BY_EXT: Record<string, string> = {
   ts: "typescript",
@@ -30,6 +31,10 @@ interface EditorPaneProps {
 }
 
 export default function EditorPane({ path, content, visible, onChange }: EditorPaneProps) {
+  if (path.toLowerCase().endsWith(".docx")) {
+    return <DocxEditor path={path} visible={visible} />;
+  }
+
   return (
     <div style={{ width: "100%", height: "100%", display: visible ? "block" : "none" }}>
       <Editor

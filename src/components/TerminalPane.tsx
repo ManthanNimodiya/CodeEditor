@@ -22,7 +22,7 @@ export default function TerminalPane({ id, cwd, visible }: TerminalPaneProps) {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: "Menlo, Monaco, monospace",
-      theme: { background: "#1e1e1e", foreground: "#d4d4d4" },
+      theme: { background: "#1c1c1c", foreground: "#d4d4d4" },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -63,8 +63,12 @@ export default function TerminalPane({ id, cwd, visible }: TerminalPaneProps) {
     if (visible) {
       fitRef.current?.fit();
       termRef.current?.focus();
+      const term = termRef.current;
+      if (term && term.cols > 0 && term.rows > 0) {
+        resizePty(id, term.cols, term.rows).catch(() => {});
+      }
     }
-  }, [visible]);
+  }, [visible, id]);
 
   return (
     <div
