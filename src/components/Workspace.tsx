@@ -6,7 +6,6 @@ import { readTextFile, writeTextFile, watch, type WatchEvent } from "@tauri-apps
 import FileTree from "./FileTree";
 import EditorPane from "./EditorPane";
 import TerminalPane from "./TerminalPane";
-import GeminiPanel from "./GeminiPanel";
 import WelcomePane from "./WelcomePane";
 
 interface OpenFile {
@@ -43,7 +42,6 @@ interface SavedState {
   projects: SavedProject[];
   activeProjectRoot: string | null;
   showTerminals: boolean;
-  showGemini: boolean;
   sidebarWidth: number;
   terminalHeight: number;
 }
@@ -116,24 +114,17 @@ export default function Workspace() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [showTerminals, setShowTerminals] = useState(true);
-  const [showGemini, setShowGemini] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [terminalHeight, setTerminalHeight] = useState(220);
-  const [geminiWidth, setGeminiWidth] = useState(340);
   const [renamingTerminalId, setRenamingTerminalId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [initialized, setInitialized] = useState(false);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  // Sidebar is on the RIGHT — drag handle is to its left; pull left (negative dx) = wider
   const sidebarDrag = useDrag((dx) => setSidebarWidth((w) => Math.min(Math.max(w - dx, 140), 480)));
   const terminalDrag = useDrag((_dx, dy) =>
-    setTerminalHeight((h) => Math.min(Math.max(h - dy, 100), 600)),
-  );
-  // Gemini panel is on the LEFT — drag handle is to its right; pull right (positive dx) = wider
-  const geminiDrag = useDrag((dx) =>
-    setGeminiWidth((w) => Math.min(Math.max(w + dx, 240), 600)),
+    setTerminalHeight((h) => Math.min(Math.max(h + dy, 80), 800)),
   );
 
   function updateProject(id: string, updater: (p: Project) => Project) {
@@ -153,7 +144,6 @@ export default function Workspace() {
         try {
           const saved: SavedState = JSON.parse(raw);
           setShowTerminals(saved.showTerminals ?? true);
-          setShowGemini(saved.showGemini ?? false);
           setSidebarWidth(saved.sidebarWidth ?? 240);
           setTerminalHeight(saved.terminalHeight ?? 220);
           savedActiveRoot = saved.activeProjectRoot;
@@ -242,13 +232,12 @@ export default function Workspace() {
         })),
         activeProjectRoot: projects.find((p) => p.id === activeProjectId)?.root ?? null,
         showTerminals,
-        showGemini,
         sidebarWidth,
         terminalHeight,
       };
       localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
     }, 600);
-  }, [projects, activeProjectId, showTerminals, showGemini, sidebarWidth, terminalHeight, initialized]);
+  }, [projects, activeProjectId, showTerminals, sidebarWidth, terminalHeight, initialized]);
 
   // ── Project management ───────────────────────────────────────────────────────
 
@@ -457,12 +446,6 @@ export default function Workspace() {
         <button onClick={() => setShowTerminals((v) => !v)}>
           {showTerminals ? "Hide Terminal" : "Show Terminal"}
         </button>
-        <button
-          onClick={() => setShowGemini((v) => !v)}
-          className={showGemini ? "toolbar-btn-active" : ""}
-        >
-          {showGemini ? "Hide Gemini" : "Gemini ✦"}
-        </button>
         <span className="toolbar-path">{activeProject?.root ?? "No project opened"}</span>
       </div>
 
@@ -491,63 +474,7 @@ export default function Workspace() {
       </div>
 
       <div className="workspace-body">
-        {showGemini && (
-          <>
-            <div className="gemini-pane-wrapper" style={{ width: geminiWidth }}>
-              <GeminiPanel />
-            </div>
-            <div className="divider-vertical" onMouseDown={geminiDrag} />
-          </>
-        )}
-
         <div className="main-area">
-          {activeProject ? (
-            <>
-              <div className="tab-bar">
-                {activeProject.files.map((f) => (
-                  <div
-                    key={f.path}
-                    className={`tab ${f.path === activeProject.activeFile ? "active" : ""}`}
-                    onClick={() => setActiveFile(activeProject.id, f.path)}
-                  >
-                    {f.name}
-                    {f.dirty ? " ●" : ""}
-                    <span
-                      className="tab-close"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeFile(activeProject.id, f.path);
-                      }}
-                    >
-                      ×
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="editor-area">
-                {activeProject.files.length === 0 && <WelcomePane />}
-                {activeProject.files.map((f) => (
-                  <EditorPane
-                    key={f.path}
-                    path={f.path}
-                    content={f.content}
-                    visible={f.path === activeProject.activeFile}
-                    onChange={(path, value) => updateContent(activeProject.id, path, value)}
-                  />
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="editor-area">
-              <WelcomePane />
-            </div>
-          )}
-
-          <div
-            className="divider-horizontal"
-            style={{ display: showTerminals ? "block" : "none" }}
-            onMouseDown={terminalDrag}
-          />
           <div
             className="terminal-panel"
             style={{ height: terminalHeight, display: showTerminals ? "flex" : "none" }}
@@ -617,6 +544,56 @@ export default function Workspace() {
               )}
             </div>
           </div>
+
+          <div
+            className="divider-horizontal"
+            style={{ display: showTerminals ? "block" : "none" }}
+            onMouseDown={terminalDrag}
+          />
+
+          {activeProject ? (
+            <>
+              {activeProject.files.length > 0 && (
+                <div className="tab-bar">
+                  {activeProject.files.map((f) => (
+                    <div
+                      key={f.path}
+                      className={`tab ${f.path === activeProject.activeFile ? "active" : ""}`}
+                      onClick={() => setActiveFile(activeProject.id, f.path)}
+                    >
+                      {f.name}
+                      {f.dirty ? " ●" : ""}
+                      <span
+                        className="tab-close"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          closeFile(activeProject.id, f.path);
+                        }}
+                      >
+                        ×
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="editor-area">
+                {activeProject.files.length === 0 && <WelcomePane />}
+                {activeProject.files.map((f) => (
+                  <EditorPane
+                    key={f.path}
+                    path={f.path}
+                    content={f.content}
+                    visible={f.path === activeProject.activeFile}
+                    onChange={(path, value) => updateContent(activeProject.id, path, value)}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="editor-area">
+              <WelcomePane />
+            </div>
+          )}
         </div>
 
         {activeProject && (

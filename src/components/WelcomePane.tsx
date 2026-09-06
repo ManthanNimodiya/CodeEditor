@@ -33,12 +33,45 @@ const GH_COMMANDS = [
   { cmd: "gh release create <tag>", desc: "Create a new release" },
 ];
 
+const RUN_COMMANDS = [
+  { cmd: "npm run dev", desc: "Start Vite / Next.js / CRA dev server" },
+  { cmd: "npm start", desc: "Start a Node.js or React app" },
+  { cmd: "npm run build", desc: "Build for production" },
+  { cmd: "npm test", desc: "Run tests" },
+  { cmd: "yarn dev", desc: "Yarn equivalent of npm run dev" },
+  { cmd: "pnpm dev", desc: "pnpm equivalent of npm run dev" },
+  { cmd: "python manage.py runserver", desc: "Start Django dev server" },
+  { cmd: "python -m uvicorn main:app --reload", desc: "Start FastAPI with live reload" },
+  { cmd: "flask run --debug", desc: "Start Flask dev server" },
+  { cmd: "go run .", desc: "Run a Go program" },
+  { cmd: "cargo run", desc: "Run a Rust program" },
+  { cmd: "cargo build --release", desc: "Build Rust in release mode" },
+  { cmd: "ruby bin/rails server", desc: "Start a Rails server" },
+  { cmd: "docker compose up", desc: "Start all services in docker-compose.yml" },
+  { cmd: "docker compose up --build", desc: "Rebuild images and start services" },
+  { cmd: "docker compose down", desc: "Stop and remove containers" },
+  { cmd: "make", desc: "Run the default Makefile target" },
+];
+
 export default function WelcomePane() {
   return (
     <div className="welcome-pane">
       <div className="welcome-watermark">राधावल्लभ श्री हरिवंश</div>
       <div className="welcome-hint">Open a file to start editing · Click a file in the sidebar</div>
       <div className="welcome-sections">
+        <section className="welcome-section section-run">
+          <h3>Run Project</h3>
+          <table className="cmd-table">
+            <tbody>
+              {RUN_COMMANDS.map(({ cmd, desc }) => (
+                <tr key={cmd}>
+                  <td><code>{cmd}</code></td>
+                  <td>{desc}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
         <section className="welcome-section">
           <h3>Git</h3>
           <table className="cmd-table">

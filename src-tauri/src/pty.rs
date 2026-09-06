@@ -38,6 +38,17 @@ pub fn pty_spawn(
     // sourcing), so without -l, tools installed via Homebrew/nvm/etc. won't resolve.
     cmd.arg("-l");
     cmd.env("TERM", "xterm-256color");
+    // CommandBuilder inherits our own process's environment, which (in dev, when
+    // launched from inside a VS Code terminal) can carry TERM_PROGRAM=vscode and
+    // VSCODE_* vars. Tools run inside our terminal would then misdetect themselves
+    // as running in VS Code. Strip that ambient identity and declare our own.
+    for (key, _) in std::env::vars() {
+        if key.starts_with("VSCODE_") || key == "TERM_PROGRAM" || key == "TERM_PROGRAM_VERSION" {
+            cmd.env_remove(&key);
+        }
+    }
+    cmd.env("TERM_PROGRAM", "code-editor");
+    cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     cmd.cwd(cwd.unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string())));
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
@@ -49,12 +60,39 @@ pub fn pty_spawn(
     let app_handle = app.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        // A multi-byte UTF-8 character can land across two separate read()s.
+        // Carry any incomplete trailing bytes over to the next read instead of
+        // decoding each raw chunk independently (which corrupts split chars).
+        let mut leftover: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = app_handle.emit(&format!("pty-output-{}", emit_id), data);
+                    leftover.extend_from_slice(&buf[..n]);
+                    match std::str::from_utf8(&leftover) {
+                        Ok(s) => {
+                            let _ = app_handle.emit(&format!("pty-output-{}", emit_id), s.to_string());
+                            leftover.clear();
+                        }
+                        Err(e) => {
+                            let valid_up_to = e.valid_up_to();
+                            if valid_up_to > 0 {
+                                let s = std::str::from_utf8(&leftover[..valid_up_to]).unwrap().to_string();
+                                let _ = app_handle.emit(&format!("pty-output-{}", emit_id), s);
+                            }
+                            let remaining = leftover[valid_up_to..].to_vec();
+                            leftover = match e.error_len() {
+                                // Definitely invalid bytes, not just an incomplete
+                                // trailing sequence — emit lossily rather than stall.
+                                Some(_) => {
+                                    let lossy = String::from_utf8_lossy(&remaining).to_string();
+                                    let _ = app_handle.emit(&format!("pty-output-{}", emit_id), lossy);
+                                    Vec::new()
+                                }
+                                None => remaining,
+                            };
+                        }
+                    }
                 }
             }
         }
