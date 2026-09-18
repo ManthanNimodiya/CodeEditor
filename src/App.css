@@ -196,7 +196,7 @@ button:disabled {
   background: rgba(2, 132, 199, 0.15);
 }
 
-/* Perfect Centered Avatar with NO Border */
+/* Borderless Centered Avatar */
 .project-pill-avatar {
   width: 32px;
   height: 32px;
@@ -344,23 +344,6 @@ button:disabled {
   letter-spacing: 0.8px;
 }
 
-.file-tree-actions {
-  display: flex;
-  gap: 4px;
-}
-.file-tree-action-btn {
-  padding: 2px 7px;
-  font-size: 10px;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  border-radius: 4px;
-}
-.file-tree-action-btn:hover {
-  background: var(--bg-card);
-  color: var(--text-bright);
-}
-
 .file-tree {
   flex: 1;
   overflow-y: auto;
@@ -403,7 +386,7 @@ button:disabled {
   color: var(--text-dark);
 }
 
-/* Badges (No Emojis, Clean Text) */
+/* Badges (Clean Text) */
 .file-badge {
   font-family: "Menlo", "Monaco", monospace;
   font-size: 9px;
@@ -597,8 +580,7 @@ button:disabled {
   background: #050508;
 }
 
-/* ── Clean Empty Editor State (No Clutter) ─────────────────────────────────── */
-
+/* Clean Empty Editor State */
 .empty-editor-state {
   flex: 1;
   display: flex;
@@ -697,8 +679,9 @@ button:disabled {
   overflow-y: hidden;
   background: var(--bg-darkest);
 }
-.terminal-cards-container.maximized {
-  display: block;
+.terminal-cards-container.has-maximized {
+  display: flex;
+  padding: 0;
 }
 
 .terminal-empty-state {
@@ -721,12 +704,29 @@ button:disabled {
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  transition: all 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+
+/* All terminals for the active project get the active project border */
 .terminal-card.active {
   border: 1px solid var(--accent-sky);
-  box-shadow: 0 0 16px rgba(2, 132, 199, 0.35);
+  box-shadow: 0 0 12px rgba(2, 132, 199, 0.25);
 }
+
+/* Focused active terminal gets extra bright border */
+.terminal-card.focused {
+  border: 1px solid var(--accent-cyan);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.4);
+}
+
+.terminal-card.maximized-card {
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  border-radius: 0;
+  border: none;
+}
+
 .terminal-card.dragging {
   opacity: 0.5;
   border-style: dashed;
@@ -838,6 +838,13 @@ button:disabled {
 .context-menu-item:hover {
   background: var(--bg-hover);
   color: var(--text-bright);
+}
+.context-menu-delete {
+  color: #f87171;
+}
+.context-menu-delete:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
 }
 .context-menu-sep {
   height: 1px;

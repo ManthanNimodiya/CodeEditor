@@ -36,10 +36,6 @@ export default function TerminalGrid({
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  const displayedTerminals = maximizedId
-    ? terminals.filter((t) => t.id === maximizedId)
-    : terminals;
-
   function handleStartRename(id: string, currentName: string) {
     setRenamingId(id);
     setRenameDraft(currentName);
@@ -85,7 +81,7 @@ export default function TerminalGrid({
 
   return (
     <div className="terminal-grid-wrapper">
-      {/* Top Header Strip without sandbox status or emojis */}
+      {/* Top Header Strip */}
       <div className="terminal-grid-header">
         <div className="terminal-grid-title-group">
           <span className="terminal-grid-title">Active Terminals</span>
@@ -102,9 +98,9 @@ export default function TerminalGrid({
         </div>
       </div>
 
-      {/* Cards Row / Grid */}
-      <div className={`terminal-cards-container ${maximizedId ? "maximized" : ""}`}>
-        {displayedTerminals.length === 0 ? (
+      {/* Cards Row / Grid (Keeps all terminals permanently mounted in DOM so none get cleared when maximizing) */}
+      <div className={`terminal-cards-container ${maximizedId ? "has-maximized" : ""}`}>
+        {terminals.length === 0 ? (
           <div className="terminal-empty-state">
             <span>No active terminal sessions.</span>
             {activeProjectId && (
@@ -117,9 +113,11 @@ export default function TerminalGrid({
             )}
           </div>
         ) : (
-          displayedTerminals.map((t, index) => {
-            const isActive = t.id === activeTerminalId;
-            const isMax = t.id === maximizedId;
+          terminals.map((t, index) => {
+            const isProjectActive = t.projectId === activeProjectId;
+            const isFocused = t.id === activeTerminalId;
+            const isMaximized = t.id === maximizedId;
+            const isHiddenByMax = maximizedId !== null && !isMaximized;
 
             return (
               <div
@@ -128,7 +126,8 @@ export default function TerminalGrid({
                 onDragStart={() => onDragStart(index)}
                 onDragOver={(e) => onDragOver(e, index)}
                 onDragEnd={onDragEnd}
-                className={`terminal-card ${isActive ? "active" : ""} ${draggedIndex === index ? "dragging" : ""}`}
+                style={{ display: isHiddenByMax ? "none" : "flex" }}
+                className={`terminal-card ${isProjectActive ? "active" : ""} ${isFocused ? "focused" : ""} ${isMaximized ? "maximized-card" : ""} ${draggedIndex === index ? "dragging" : ""}`}
                 onClick={() => onSelectTerminal(t.id)}
               >
                 {/* Card Header */}
@@ -213,13 +212,13 @@ export default function TerminalGrid({
 
                     <button
                       className="terminal-card-ctrl-btn"
-                      title={isMax ? "Restore grid" : "Maximize"}
+                      title={isMaximized ? "Restore grid" : "Maximize"}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setMaximizedId(isMax ? null : t.id);
+                        setMaximizedId(isMaximized ? null : t.id);
                       }}
                     >
-                      {isMax ? "restore" : "max"}
+                      {isMaximized ? "restore" : "max"}
                     </button>
 
                     <button
@@ -241,7 +240,7 @@ export default function TerminalGrid({
                   <TerminalPane
                     id={t.id}
                     cwd={t.projectRoot}
-                    visible={true}
+                    visible={!isHiddenByMax}
                   />
                 </div>
               </div>

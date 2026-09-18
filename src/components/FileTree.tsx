@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { mkdir, readDir, watch, writeFile } from "@tauri-apps/plugin-fs";
+import { mkdir, readDir, remove, watch, writeFile } from "@tauri-apps/plugin-fs";
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { FileIcon } from "./FileIcon";
 
 interface FileTreeProps {
@@ -19,6 +20,7 @@ interface ContextMenu {
   x: number;
   y: number;
   path: string;
+  isDir: boolean;
 }
 
 interface NewItem {
@@ -65,7 +67,7 @@ function DirNode({
   version: number;
   activeFilePath: string | null;
   onOpenFile: (p: string) => void;
-  onContextMenu: (path: string, e: React.MouseEvent) => void;
+  onContextMenu: (path: string, isDir: boolean, e: React.MouseEvent) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [entries, setEntries] = useState<Entry[] | null>(null);
@@ -90,7 +92,7 @@ function DirNode({
         className="file-tree-row file-tree-dir"
         style={{ paddingLeft: depth * 14 + 10 }}
         onClick={toggle}
-        onContextMenu={(e) => onContextMenu(path, e)}
+        onContextMenu={(e) => onContextMenu(path, true, e)}
       >
         <span className="file-tree-caret">{expanded ? "▾" : "▸"}</span>
         <FileIcon name={name} isDir={true} expanded={expanded} />
@@ -115,7 +117,7 @@ function DirNode({
               className={`file-tree-row file-tree-file ${e.path === activeFilePath ? "active" : ""}`}
               style={{ paddingLeft: (depth + 1) * 14 + 10 }}
               onClick={() => onOpenFile(e.path)}
-              onContextMenu={(event) => onContextMenu(e.path, event)}
+              onContextMenu={(event) => onContextMenu(e.path, false, event)}
             >
               <FileIcon name={e.name} isDir={false} />
               <span className="file-tree-label">{e.name}</span>
@@ -189,39 +191,45 @@ export default function FileTree({ root, activeFilePath, onOpenFile, onOpenAsPro
         await writeFile(fullPath, new Uint8Array());
         onOpenFile(fullPath);
       }
+      setVersion((v) => v + 1);
     } catch {}
     setNewItem(null);
     setNewName("");
   }
 
-  function requestMenu(path: string, e: React.MouseEvent) {
+  async function handleDelete(targetPath: string) {
+    setMenu(null);
+    const itemName = basename(targetPath);
+    const ok = await confirmDialog(`Are you sure you want to delete "${itemName}"?`, {
+      title: "Delete Confirmation",
+      kind: "warning",
+    });
+    if (!ok) return;
+
+    try {
+      await remove(targetPath, { recursive: true });
+      setVersion((v) => v + 1);
+    } catch {}
+  }
+
+  function requestMenu(path: string, isDir: boolean, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    setMenu({ x: e.clientX, y: e.clientY, path });
+    setMenu({ x: e.clientX, y: e.clientY, path, isDir });
+  }
+
+  function handleContainerContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY, path: root, isDir: true });
   }
 
   return (
-    <div className="file-tree-wrapper">
+    <div className="file-tree-wrapper" onContextMenu={handleContainerContextMenu}>
+      {/* Clean Header without cut-off buttons */}
       <div className="file-tree-header">
         <div className="file-tree-title-group">
           <span className="file-tree-workspace-tag">&gt;</span>
           <span className="file-tree-title">{rootName.toUpperCase()} WORKSPACE</span>
-        </div>
-        <div className="file-tree-actions">
-          <button
-            className="file-tree-action-btn"
-            title="New File"
-            onClick={() => startCreate(root, "file")}
-          >
-            +File
-          </button>
-          <button
-            className="file-tree-action-btn"
-            title="New Folder"
-            onClick={() => startCreate(root, "folder")}
-          >
-            +Folder
-          </button>
         </div>
       </div>
 
@@ -268,7 +276,7 @@ export default function FileTree({ root, activeFilePath, onOpenFile, onOpenAsPro
               className={`file-tree-row file-tree-file ${e.path === activeFilePath ? "active" : ""}`}
               style={{ paddingLeft: 10 }}
               onClick={() => onOpenFile(e.path)}
-              onContextMenu={(event) => requestMenu(e.path, event)}
+              onContextMenu={(event) => requestMenu(e.path, false, event)}
             >
               <FileIcon name={e.name} isDir={false} />
               <span className="file-tree-label">{e.name}</span>
@@ -277,24 +285,46 @@ export default function FileTree({ root, activeFilePath, onOpenFile, onOpenAsPro
         )}
       </div>
 
+      {/* Right Click Context Menu */}
       {menu && (
         <div className="context-menu" style={{ top: menu.y, left: menu.x }}>
-          <div className="context-menu-item" onClick={() => startCreate(menu.path, "file")}>
-            New File Here
-          </div>
-          <div className="context-menu-item" onClick={() => startCreate(menu.path, "folder")}>
-            New Folder Here
-          </div>
-          <div className="context-menu-sep" />
           <div
             className="context-menu-item"
-            onClick={() => {
-              onOpenAsProject(menu.path);
-              setMenu(null);
-            }}
+            onClick={() => startCreate(menu.isDir ? menu.path : root, "file")}
           >
-            Open as Project
+            New File
           </div>
+          <div
+            className="context-menu-item"
+            onClick={() => startCreate(menu.isDir ? menu.path : root, "folder")}
+          >
+            New Folder
+          </div>
+          {menu.path !== root && (
+            <>
+              <div className="context-menu-sep" />
+              <div
+                className="context-menu-item context-menu-delete"
+                onClick={() => handleDelete(menu.path)}
+              >
+                Delete
+              </div>
+            </>
+          )}
+          {menu.isDir && menu.path !== root && (
+            <>
+              <div className="context-menu-sep" />
+              <div
+                className="context-menu-item"
+                onClick={() => {
+                  onOpenAsProject(menu.path);
+                  setMenu(null);
+                }}
+              >
+                Open as Project
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
