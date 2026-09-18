@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { mkdir, readDir, watch, writeFile } from "@tauri-apps/plugin-fs";
+import { FileIcon } from "./FileIcon";
 
 interface FileTreeProps {
   root: string;
+  activeFilePath: string | null;
   onOpenFile: (path: string) => void;
   onOpenAsProject: (path: string) => void;
 }
@@ -24,19 +26,28 @@ interface NewItem {
   type: "file" | "folder";
 }
 
+function basename(path: string): string {
+  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
+  return trimmed.split("/").pop() ?? trimmed;
+}
+
 function joinPath(dir: string, name: string): string {
   return dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
 }
 
 async function listEntries(dir: string): Promise<Entry[]> {
-  const raw = await readDir(dir);
-  return raw
-    .filter((e) => e.name)
-    .map((e) => ({ name: e.name!, path: joinPath(dir, e.name!), isDirectory: !!e.isDirectory }))
-    .sort((a, b) => {
-      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+  try {
+    const raw = await readDir(dir);
+    return raw
+      .filter((e) => e.name)
+      .map((e) => ({ name: e.name!, path: joinPath(dir, e.name!), isDirectory: !!e.isDirectory }))
+      .sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  } catch {
+    return [];
+  }
 }
 
 function DirNode({
@@ -44,6 +55,7 @@ function DirNode({
   name,
   depth,
   version,
+  activeFilePath,
   onOpenFile,
   onContextMenu,
 }: {
@@ -51,6 +63,7 @@ function DirNode({
   name: string;
   depth: number;
   version: number;
+  activeFilePath: string | null;
   onOpenFile: (p: string) => void;
   onContextMenu: (path: string, e: React.MouseEvent) => void;
 }) {
@@ -66,25 +79,22 @@ function DirNode({
 
   async function toggle() {
     if (!expanded && entries === null) {
-      try {
-        setEntries(await listEntries(path));
-      } catch {
-        setEntries([]);
-      }
+      setEntries(await listEntries(path));
     }
     setExpanded((v) => !v);
   }
 
   return (
-    <div>
+    <div className="file-tree-node">
       <div
         className="file-tree-row file-tree-dir"
-        style={{ paddingLeft: depth * 14 + 8 }}
+        style={{ paddingLeft: depth * 14 + 10 }}
         onClick={toggle}
         onContextMenu={(e) => onContextMenu(path, e)}
       >
         <span className="file-tree-caret">{expanded ? "▾" : "▸"}</span>
-        {name}
+        <FileIcon name={name} isDir={true} expanded={expanded} />
+        <span className="file-tree-label">{name}</span>
       </div>
       {expanded &&
         entries?.map((e) =>
@@ -95,17 +105,20 @@ function DirNode({
               name={e.name}
               depth={depth + 1}
               version={version}
+              activeFilePath={activeFilePath}
               onOpenFile={onOpenFile}
               onContextMenu={onContextMenu}
             />
           ) : (
             <div
               key={e.path}
-              className="file-tree-row file-tree-file"
-              style={{ paddingLeft: (depth + 1) * 14 + 8 }}
+              className={`file-tree-row file-tree-file ${e.path === activeFilePath ? "active" : ""}`}
+              style={{ paddingLeft: (depth + 1) * 14 + 10 }}
               onClick={() => onOpenFile(e.path)}
+              onContextMenu={(event) => onContextMenu(e.path, event)}
             >
-              {e.name}
+              <FileIcon name={e.name} isDir={false} />
+              <span className="file-tree-label">{e.name}</span>
             </div>
           ),
         )}
@@ -113,13 +126,15 @@ function DirNode({
   );
 }
 
-export default function FileTree({ root, onOpenFile, onOpenAsProject }: FileTreeProps) {
+export default function FileTree({ root, activeFilePath, onOpenFile, onOpenAsProject }: FileTreeProps) {
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [menu, setMenu] = useState<ContextMenu | null>(null);
   const [version, setVersion] = useState(0);
   const [newItem, setNewItem] = useState<NewItem | null>(null);
   const [newName, setNewName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const rootName = basename(root);
 
   useEffect(() => {
     listEntries(root)
@@ -188,7 +203,10 @@ export default function FileTree({ root, onOpenFile, onOpenAsProject }: FileTree
   return (
     <div className="file-tree-wrapper">
       <div className="file-tree-header">
-        <span className="file-tree-title">Explorer</span>
+        <div className="file-tree-title-group">
+          <span className="file-tree-workspace-tag">&gt;</span>
+          <span className="file-tree-title">{rootName.toUpperCase()} WORKSPACE</span>
+        </div>
         <div className="file-tree-actions">
           <button
             className="file-tree-action-btn"
@@ -214,13 +232,19 @@ export default function FileTree({ root, onOpenFile, onOpenAsProject }: FileTree
             ref={inputRef}
             className="file-tree-new-input"
             value={newName}
-            placeholder={newItem.type === "folder" ? "folder-name" : "file.txt"}
+            placeholder={newItem.type === "folder" ? "folder-name" : "filename.ts"}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") confirmCreate();
-              if (e.key === "Escape") { setNewItem(null); setNewName(""); }
+              if (e.key === "Escape") {
+                setNewItem(null);
+                setNewName("");
+              }
             }}
-            onBlur={() => { setNewItem(null); setNewName(""); }}
+            onBlur={() => {
+              setNewItem(null);
+              setNewName("");
+            }}
           />
         </div>
       )}
@@ -234,17 +258,20 @@ export default function FileTree({ root, onOpenFile, onOpenAsProject }: FileTree
               name={e.name}
               depth={0}
               version={version}
+              activeFilePath={activeFilePath}
               onOpenFile={onOpenFile}
               onContextMenu={requestMenu}
             />
           ) : (
             <div
               key={e.path}
-              className="file-tree-row file-tree-file"
-              style={{ paddingLeft: 8 }}
+              className={`file-tree-row file-tree-file ${e.path === activeFilePath ? "active" : ""}`}
+              style={{ paddingLeft: 10 }}
               onClick={() => onOpenFile(e.path)}
+              onContextMenu={(event) => requestMenu(e.path, event)}
             >
-              {e.name}
+              <FileIcon name={e.name} isDir={false} />
+              <span className="file-tree-label">{e.name}</span>
             </div>
           ),
         )}

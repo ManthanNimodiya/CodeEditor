@@ -47,7 +47,7 @@ pub fn pty_spawn(
             cmd.env_remove(&key);
         }
     }
-    cmd.env("TERM_PROGRAM", "code-editor");
+    cmd.env("TERM_PROGRAM", "codeditor");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     cmd.cwd(cwd.unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string())));
 

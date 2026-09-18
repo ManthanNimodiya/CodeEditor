@@ -3,10 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog, confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile, watch, type WatchEvent } from "@tauri-apps/plugin-fs";
+import ActivityBar from "./ActivityBar";
 import FileTree from "./FileTree";
 import EditorPane from "./EditorPane";
-import TerminalPane from "./TerminalPane";
-import WelcomePane from "./WelcomePane";
+import TerminalGrid, { type TerminalTabItem } from "./TerminalGrid";
+import StatusBar from "./StatusBar";
 
 interface OpenFile {
   path: string;
@@ -42,11 +43,13 @@ interface SavedState {
   projects: SavedProject[];
   activeProjectRoot: string | null;
   showTerminals: boolean;
+  showExplorer: boolean;
   sidebarWidth: number;
+  activityBarWidth: number;
   terminalHeight: number;
 }
 
-const PERSIST_KEY = "code-editor-state";
+const PERSIST_KEY = "codeditor-state";
 
 function basename(path: string): string {
   const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
@@ -63,15 +66,16 @@ function isDocx(path: string): boolean {
   return path.toLowerCase().endsWith(".docx");
 }
 
-function createProject(root: string): Project {
+function createProject(root: string, defaultName?: string): Project {
   const terminalId = crypto.randomUUID();
+  const name = defaultName || basename(root);
   return {
     id: crypto.randomUUID(),
     root,
-    name: basename(root),
+    name,
     files: [],
     activeFile: null,
-    terminals: [{ id: terminalId, name: "Terminal 1" }],
+    terminals: [{ id: terminalId, name: `${name} (Terminal)` }],
     activeTerminal: terminalId,
   };
 }
@@ -88,7 +92,7 @@ function useDrag(onMove: (deltaX: number, deltaY: number) => void) {
       last.current = { x: e.clientX, y: e.clientY };
       onMove(dx, dy);
     },
-    [onMove],
+    [onMove]
   );
 
   const stop = useCallback(() => {
@@ -104,7 +108,7 @@ function useDrag(onMove: (deltaX: number, deltaY: number) => void) {
       window.addEventListener("mousemove", onMouseMove);
       window.addEventListener("mouseup", stop);
     },
-    [onMouseMove, stop],
+    [onMouseMove, stop]
   );
 
   return start;
@@ -114,38 +118,62 @@ export default function Workspace() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [showTerminals, setShowTerminals] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(240);
-  const [terminalHeight, setTerminalHeight] = useState(220);
-  const [renamingTerminalId, setRenamingTerminalId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState("");
+  const [showExplorer, setShowExplorer] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(250);
+  const [activityBarWidth, setActivityBarWidth] = useState(52);
+  const [terminalHeight, setTerminalHeight] = useState(280);
   const [initialized, setInitialized] = useState(false);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  const sidebarDrag = useDrag((dx) => setSidebarWidth((w) => Math.min(Math.max(w - dx, 140), 480)));
+  // Sidebar drag with snap-to-close when dragged to the end (< 60px)
+  const sidebarDrag = useDrag((dx) => {
+    setSidebarWidth((w) => {
+      const next = w + dx;
+      if (next < 60) {
+        setShowExplorer(false);
+        return 220;
+      }
+      return Math.min(Math.max(next, 120), 550);
+    });
+  });
+
+  // Activity bar drag to resize
+  const activityBarDrag = useDrag((dx) => {
+    setActivityBarWidth((w) => {
+      const next = w + dx;
+      if (next < 65) return 52;
+      return Math.min(Math.max(next, 52), 320);
+    });
+  });
+
+  // Full-height capable terminal drag
   const terminalDrag = useDrag((_dx, dy) =>
-    setTerminalHeight((h) => Math.min(Math.max(h + dy, 80), 800)),
+    setTerminalHeight((h) =>
+      Math.min(Math.max(h - dy, 60), Math.max(window.innerHeight - 50, 100))
+    )
   );
 
   function updateProject(id: string, updater: (p: Project) => Project) {
     setProjects((prev) => prev.map((p) => (p.id === id ? updater(p) : p)));
   }
 
-  // ── Persistence ─────────────────────────────────────────────────────────────
+  // ── Persistence & Initialization ──────────────────────────────────────────
 
-  // Restore on mount
   useEffect(() => {
     async function init() {
       let restoredProjects: Project[] = [];
       let savedActiveRoot: string | null = null;
 
-      const raw = localStorage.getItem(PERSIST_KEY);
+      const raw = localStorage.getItem(PERSIST_KEY) || localStorage.getItem("code-editor-state");
       if (raw) {
         try {
           const saved: SavedState = JSON.parse(raw);
           setShowTerminals(saved.showTerminals ?? true);
-          setSidebarWidth(saved.sidebarWidth ?? 240);
-          setTerminalHeight(saved.terminalHeight ?? 220);
+          setShowExplorer(saved.showExplorer ?? true);
+          setSidebarWidth(saved.sidebarWidth ?? 250);
+          setActivityBarWidth(saved.activityBarWidth ?? 52);
+          setTerminalHeight(saved.terminalHeight ?? 280);
           savedActiveRoot = saved.activeProjectRoot;
 
           for (const sp of saved.projects) {
@@ -158,7 +186,7 @@ export default function Workspace() {
                   const content = await readTextFile(filePath);
                   files.push({ path: filePath, name: basename(filePath), content, dirty: false });
                 } catch {
-                  // File no longer exists
+                  // File removed from disk
                 }
               }
             }
@@ -170,7 +198,8 @@ export default function Workspace() {
               root: sp.root,
               name: basename(sp.root),
               files,
-              activeFile: files.find((f) => f.path === sp.activeFilePath)?.path ?? files[0]?.path ?? null,
+              activeFile:
+                files.find((f) => f.path === sp.activeFilePath)?.path ?? files[0]?.path ?? null,
               terminals,
               activeTerminal,
             });
@@ -180,10 +209,10 @@ export default function Workspace() {
         }
       }
 
-      // Handle CLI launch path and open-path events
+      // Handle CLI launch path and pending open-path events
       const [launchPath, pendingPath] = await Promise.all([
-        invoke<string | null>("get_launch_path"),
-        invoke<string | null>("take_pending_open_path"),
+        invoke<string | null>("get_launch_path").catch(() => null),
+        invoke<string | null>("take_pending_open_path").catch(() => null),
       ]);
 
       for (const path of [launchPath, pendingPath]) {
@@ -193,14 +222,15 @@ export default function Workspace() {
         }
       }
 
-      if (restoredProjects.length > 0) {
-        setProjects(restoredProjects);
-        const active =
-          restoredProjects.find((p) => p.root === savedActiveRoot) ??
-          restoredProjects[restoredProjects.length - 1];
-        setActiveProjectId(active.id);
+      if (restoredProjects.length === 0) {
+        const defaultRoot = "/Users/manthannimodiya/Coding/Projects/code-editor";
+        restoredProjects = [createProject(defaultRoot, "Workspace")];
       }
 
+      setProjects(restoredProjects);
+      const active =
+        restoredProjects.find((p) => p.root === savedActiveRoot) ?? restoredProjects[0];
+      setActiveProjectId(active?.id ?? null);
       setInitialized(true);
     }
 
@@ -213,7 +243,7 @@ export default function Workspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced save whenever state changes (after initialization)
+  // Debounced auto-save
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!initialized) return;
@@ -227,19 +257,30 @@ export default function Workspace() {
           terminalNames: p.terminals.map((t) => t.name),
           activeTerminalIndex: Math.max(
             0,
-            p.terminals.findIndex((t) => t.id === p.activeTerminal),
+            p.terminals.findIndex((t) => t.id === p.activeTerminal)
           ),
         })),
         activeProjectRoot: projects.find((p) => p.id === activeProjectId)?.root ?? null,
         showTerminals,
+        showExplorer,
         sidebarWidth,
+        activityBarWidth,
         terminalHeight,
       };
       localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
     }, 600);
-  }, [projects, activeProjectId, showTerminals, sidebarWidth, terminalHeight, initialized]);
+  }, [
+    projects,
+    activeProjectId,
+    showTerminals,
+    showExplorer,
+    sidebarWidth,
+    activityBarWidth,
+    terminalHeight,
+    initialized,
+  ]);
 
-  // ── Project management ───────────────────────────────────────────────────────
+  // ── Project & File Management ─────────────────────────────────────────────
 
   function openFolderAsProject(dir: string) {
     setProjects((prev) => {
@@ -277,7 +318,7 @@ export default function Workspace() {
         if (openFile.dirty) {
           const shouldReload = await confirmDialog(
             `"${openFile.name}" changed on disk. Reload and discard your local changes?`,
-            { title: "File changed externally", kind: "warning" },
+            { title: "File changed externally", kind: "warning" }
           );
           if (!shouldReload) continue;
         }
@@ -285,15 +326,6 @@ export default function Workspace() {
           ...p,
           files: p.files.map((f) => (f.path === path ? { ...f, content, dirty: false } : f)),
         }));
-      } else {
-        updateProject(projectId, (p) => {
-          if (p.files.some((f) => f.path === path)) return p;
-          return {
-            ...p,
-            files: [...p.files, { path, name: basename(path), content, dirty: false }],
-            activeFile: path,
-          };
-        });
       }
     }
   }
@@ -301,7 +333,7 @@ export default function Workspace() {
   const projectWatchKey = projects.map((p) => `${p.id}:${p.root}`).join(",");
   useEffect(() => {
     const unwatchPromises = projects.map((p) =>
-      watch(p.root, (event) => handleWatchEvent(p.id, event), { recursive: true, delayMs: 300 }),
+      watch(p.root, (event) => handleWatchEvent(p.id, event), { recursive: true, delayMs: 300 })
     );
     return () => {
       unwatchPromises.forEach((u) => u.then((f) => f()));
@@ -319,7 +351,7 @@ export default function Workspace() {
     if (project?.files.some((f) => f.dirty)) {
       const shouldClose = await confirmDialog(
         `"${project.name}" has unsaved changes. Close anyway?`,
-        { title: "Unsaved changes", kind: "warning" },
+        { title: "Unsaved changes", kind: "warning" }
       );
       if (!shouldClose) return;
     }
@@ -337,7 +369,6 @@ export default function Workspace() {
       updateProject(projectId, (p) => ({ ...p, activeFile: path }));
       return;
     }
-    // .docx files are read by DocxEditor itself — don't try readTextFile on binary
     const content = isDocx(path) ? "" : await readTextFile(path);
     updateProject(projectId, (p) => ({
       ...p,
@@ -378,7 +409,7 @@ export default function Workspace() {
   async function saveActiveFile() {
     if (!activeProject) return;
     const file = activeProject.files.find((f) => f.path === activeProject.activeFile);
-    if (!file || isDocx(file.path)) return; // docx saves handled by DocxEditor
+    if (!file || isDocx(file.path)) return;
     await writeTextFile(file.path, file.content);
     updateProject(activeProject.id, (p) => ({
       ...p,
@@ -398,28 +429,27 @@ export default function Workspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject]);
 
-  useEffect(() => {
-    function onContextMenu(e: MouseEvent) {
-      e.preventDefault();
-    }
-    window.addEventListener("contextmenu", onContextMenu);
-    return () => window.removeEventListener("contextmenu", onContextMenu);
-  }, []);
-
-  // ── Terminal management ──────────────────────────────────────────────────────
+  // ── Terminal Management & Reordering ─────────────────────────────────────
 
   function addTerminal(projectId: string) {
     const id = crypto.randomUUID();
+    const proj = projects.find((p) => p.id === projectId);
+    const num = (proj?.terminals.length ?? 0) + 1;
+    const termName = `${proj?.name ?? "Terminal"} (Session ${num})`;
+
     updateProject(projectId, (p) => ({
       ...p,
-      terminals: [...p.terminals, { id, name: `Terminal ${p.terminals.length + 1}` }],
+      terminals: [...p.terminals, { id, name: termName }],
       activeTerminal: id,
     }));
     setShowTerminals(true);
   }
 
-  function setActiveTerminal(projectId: string, id: string) {
-    updateProject(projectId, (p) => ({ ...p, activeTerminal: id }));
+  function setActiveTerminal(id: string) {
+    const proj = projects.find((p) => p.terminals.some((t) => t.id === id));
+    if (proj) {
+      updateProject(proj.id, (p) => ({ ...p, activeTerminal: id }));
+    }
   }
 
   function renameTerminal(projectId: string, id: string, name: string) {
@@ -438,146 +468,158 @@ export default function Workspace() {
     });
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  function handleReorderTerminals(reordered: TerminalTabItem[]) {
+    setProjects((prev) => {
+      return prev.map((p) => {
+        const projectTerminals = reordered
+          .filter((item) => item.projectId === p.id)
+          .map((item) => ({ id: item.id, name: item.name }));
+        return {
+          ...p,
+          terminals: projectTerminals.length > 0 ? projectTerminals : p.terminals,
+        };
+      });
+    });
+  }
+
+  const allTerminals: TerminalTabItem[] = projects.flatMap((p) =>
+    p.terminals.map((t) => ({
+      id: t.id,
+      name: t.name,
+      projectId: p.id,
+      projectName: p.name,
+      projectRoot: p.root,
+    }))
+  );
+
+  const activeTerminalId =
+    activeProject?.activeTerminal ?? allTerminals[0]?.id ?? null;
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="workspace">
-      <div className="toolbar">
-        <button onClick={() => setShowTerminals((v) => !v)}>
-          {showTerminals ? "Hide Terminal" : "Show Terminal"}
-        </button>
-        <span className="toolbar-path">{activeProject?.root ?? "No project opened"}</span>
-      </div>
-
-      <div className="project-tab-bar">
-        {projects.map((p) => (
-          <div
-            key={p.id}
-            className={`project-tab ${p.id === activeProjectId ? "active" : ""}`}
-            onClick={() => setActiveProjectId(p.id)}
-          >
-            {p.name}
-            <span
-              className="tab-close"
-              onClick={(e) => {
-                e.stopPropagation();
-                closeProject(p.id);
-              }}
-            >
-              ×
-            </span>
-          </div>
-        ))}
-        <div className="project-tab project-tab-add" onClick={openFolder}>
-          + Project
-        </div>
-      </div>
-
       <div className="workspace-body">
-        <div className="main-area">
+        {/* Far-Left Activity Bar Rail */}
+        <ActivityBar
+          projects={projects.map((p) => ({ id: p.id, name: p.name, root: p.root }))}
+          activeProjectId={activeProjectId}
+          onSelectProject={(id) => setActiveProjectId(id)}
+          onAddProject={openFolder}
+          showExplorer={showExplorer}
+          onToggleExplorer={() => setShowExplorer((v) => !v)}
+          width={activityBarWidth}
+          onResizeWidth={setActivityBarWidth}
+        />
+
+        {activityBarWidth > 52 && (
+          <div className="divider-vertical" onMouseDown={activityBarDrag} />
+        )}
+
+        {/* Left File Explorer Sidebar */}
+        {showExplorer && activeProject && (
+          <>
+            <div className="sidebar" style={{ width: sidebarWidth }}>
+              <FileTree
+                root={activeProject.root}
+                activeFilePath={activeProject.activeFile}
+                onOpenFile={openFileFromPath}
+                onOpenAsProject={openFolderAsProject}
+              />
+            </div>
+            <div className="divider-vertical" onMouseDown={sidebarDrag} />
+          </>
+        )}
+
+        {/* Closed Sidebar Re-open handle */}
+        {!showExplorer && activeProject && (
           <div
-            className="terminal-panel"
-            style={{ height: terminalHeight, display: showTerminals ? "flex" : "none" }}
+            className="sidebar-closed-indicator"
+            title="Open Explorer"
+            onClick={() => setShowExplorer(true)}
           >
-            <div className="tab-bar">
-              {activeProject?.terminals.map((t) => (
+            <span>&gt;</span>
+          </div>
+        )}
+
+        {/* Center Main Stage */}
+        <div className="main-area">
+          {/* Top Tabs & Breadcrumbs Bar */}
+          <div className="top-nav-bar">
+            {/* Project Quick Tabs */}
+            <div className="project-breadcrumbs">
+              {projects.map((p) => (
                 <div
-                  key={t.id}
-                  className={`tab ${t.id === activeProject.activeTerminal ? "active" : ""}`}
-                  onClick={() => setActiveTerminal(activeProject.id, t.id)}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setRenamingTerminalId(t.id);
-                    setRenameDraft(t.name);
-                  }}
+                  key={p.id}
+                  className={`project-tab-pill ${p.id === activeProjectId ? "active" : ""}`}
+                  onClick={() => setActiveProjectId(p.id)}
                 >
-                  {renamingTerminalId === t.id ? (
-                    <input
-                      className="tab-rename-input"
-                      autoFocus
-                      value={renameDraft}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setRenameDraft(e.target.value)}
-                      onBlur={() => {
-                        renameTerminal(activeProject.id, t.id, renameDraft.trim() || t.name);
-                        setRenamingTerminalId(null);
+                  <span className="pill-prompt">&gt;_</span>
+                  <span className="pill-name">{p.name}</span>
+                  {projects.length > 1 && (
+                    <span
+                      className="pill-close"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeProject(p.id);
                       }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          renameTerminal(activeProject.id, t.id, renameDraft.trim() || t.name);
-                          setRenamingTerminalId(null);
-                        } else if (e.key === "Escape") {
-                          setRenamingTerminalId(null);
-                        }
-                      }}
-                    />
-                  ) : (
-                    t.name
+                    >
+                      &times;
+                    </span>
                   )}
-                  <span
-                    className="tab-close"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTerminal(activeProject.id, t.id);
-                    }}
-                  >
-                    ×
-                  </span>
                 </div>
               ))}
-              {activeProject && (
-                <div className="tab tab-add" onClick={() => addTerminal(activeProject.id)}>
-                  +
-                </div>
-              )}
             </div>
-            <div className="terminal-host">
-              {projects.flatMap((p) =>
-                p.terminals.map((t) => (
-                  <TerminalPane
-                    key={t.id}
-                    id={t.id}
-                    cwd={p.root}
-                    visible={p.id === activeProjectId && t.id === p.activeTerminal}
-                  />
-                )),
-              )}
+
+            {/* Active Open File Tabs */}
+            {activeProject && activeProject.files.length > 0 && (
+              <div className="file-tabs-strip">
+                {activeProject.files.map((f) => (
+                  <div
+                    key={f.path}
+                    className={`tab ${f.path === activeProject.activeFile ? "active" : ""}`}
+                    onClick={() => setActiveFile(activeProject.id, f.path)}
+                  >
+                    <span className="tab-name">{f.name}</span>
+                    {f.dirty && <span className="tab-dirty-dot">&#9679;</span>}
+                    <span
+                      className="tab-close"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeFile(activeProject.id, f.path);
+                      }}
+                    >
+                      &times;
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="top-nav-actions">
+              <button
+                className="top-nav-btn"
+                title={showTerminals ? "Hide Terminal Panel" : "Show Terminal Panel"}
+                onClick={() => setShowTerminals((v) => !v)}
+              >
+                {showTerminals ? "Hide Terminal" : "Show Terminal"}
+              </button>
             </div>
           </div>
 
-          <div
-            className="divider-horizontal"
-            style={{ display: showTerminals ? "block" : "none" }}
-            onMouseDown={terminalDrag}
-          />
-
-          {activeProject ? (
-            <>
-              {activeProject.files.length > 0 && (
-                <div className="tab-bar">
-                  {activeProject.files.map((f) => (
-                    <div
-                      key={f.path}
-                      className={`tab ${f.path === activeProject.activeFile ? "active" : ""}`}
-                      onClick={() => setActiveFile(activeProject.id, f.path)}
-                    >
-                      {f.name}
-                      {f.dirty ? " ●" : ""}
-                      <span
-                        className="tab-close"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeFile(activeProject.id, f.path);
-                        }}
-                      >
-                        ×
-                      </span>
-                    </div>
-                  ))}
+          {/* Editor Stage */}
+          <div className="stage-content">
+            {!activeProject || activeProject.files.length === 0 ? (
+              <div className="empty-editor-state">
+                <div className="empty-editor-content">
+                  <span className="empty-editor-title">CodEditor</span>
+                  <span className="empty-editor-hint">
+                    Select a file from the explorer or create a new one to begin editing
+                  </span>
                 </div>
-              )}
+              </div>
+            ) : (
               <div className="editor-area">
-                {activeProject.files.length === 0 && <WelcomePane />}
                 {activeProject.files.map((f) => (
                   <EditorPane
                     key={f.path}
@@ -588,27 +630,35 @@ export default function Workspace() {
                   />
                 ))}
               </div>
+            )}
+          </div>
+
+          {/* Bottom Multi-Terminal Grid Panel (Can resize all the way to the top) */}
+          {showTerminals && (
+            <>
+              <div className="divider-horizontal" onMouseDown={terminalDrag} />
+              <div className="bottom-terminals-wrapper" style={{ height: terminalHeight }}>
+                <TerminalGrid
+                  terminals={allTerminals}
+                  activeTerminalId={activeTerminalId}
+                  onSelectTerminal={setActiveTerminal}
+                  onAddTerminal={addTerminal}
+                  onCloseTerminal={closeTerminal}
+                  onRenameTerminal={renameTerminal}
+                  onReorderTerminals={handleReorderTerminals}
+                  activeProjectId={activeProjectId}
+                />
+              </div>
             </>
-          ) : (
-            <div className="editor-area">
-              <WelcomePane />
-            </div>
           )}
         </div>
-
-        {activeProject && (
-          <>
-            <div className="divider-vertical" onMouseDown={sidebarDrag} />
-            <div className="sidebar" style={{ width: sidebarWidth }}>
-              <FileTree
-                root={activeProject.root}
-                onOpenFile={openFileFromPath}
-                onOpenAsProject={openFolderAsProject}
-              />
-            </div>
-          </>
-        )}
       </div>
+
+      {/* Bottom Status Bar */}
+      <StatusBar
+        activeFilePath={activeProject?.activeFile ?? null}
+        fileCount={activeProject?.files.length ?? 0}
+      />
     </div>
   );
 }

@@ -16,7 +16,9 @@ export default function TerminalPane({ id, cwd, visible }: TerminalPaneProps) {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const idRef = useRef(id);
-  useEffect(() => { idRef.current = id; }, [id]);
+  useEffect(() => {
+    idRef.current = id;
+  }, [id]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -25,27 +27,38 @@ export default function TerminalPane({ id, cwd, visible }: TerminalPaneProps) {
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "Menlo, Monaco, monospace",
+      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
       allowProposedApi: true,
+      scrollback: 10000,
       theme: {
-        background: "#141414",
-        foreground: "#cccccc",
-        cursor: "#aeafad",
-        selectionBackground: "#264f78",
-        black: "#000000",  brightBlack: "#666666",
-        red: "#cd3131",    brightRed: "#f14c4c",
-        green: "#0dbc79",  brightGreen: "#23d18b",
-        yellow: "#e5e510", brightYellow: "#f5f543",
-        blue: "#2472c8",   brightBlue: "#3b8eea",
-        magenta: "#bc3fbc",brightMagenta: "#d670d6",
-        cyan: "#11a8cd",   brightCyan: "#29b8db",
-        white: "#e5e5e5",  brightWhite: "#ffffff",
+        background: "#050507",
+        foreground: "#d4d4d8",
+        cursor: "#38bdf8",
+        selectionBackground: "#1e3a5f",
+        black: "#09090b",
+        brightBlack: "#52525b",
+        red: "#ef4444",
+        brightRed: "#f87171",
+        green: "#10b981",
+        brightGreen: "#34d399",
+        yellow: "#f59e0b",
+        brightYellow: "#fbbf24",
+        blue: "#0284c7",
+        brightBlue: "#38bdf8",
+        magenta: "#06b6d4",
+        brightMagenta: "#22d3ee",
+        cyan: "#14b8a6",
+        brightCyan: "#2dd4bf",
+        white: "#e4e4e7",
+        brightWhite: "#ffffff",
       },
     });
+
     const fit = new FitAddon();
     const webLinks = new WebLinksAddon((event, uri) => {
       if (event.metaKey || event.ctrlKey) window.open(uri, "_blank");
     });
+
     term.loadAddon(fit);
     term.loadAddon(webLinks);
     term.open(el);
@@ -53,24 +66,98 @@ export default function TerminalPane({ id, cwd, visible }: TerminalPaneProps) {
     termRef.current = term;
     fitRef.current = fit;
 
-    // macOS WKWebView can intercept backspace/delete before xterm's textarea sees it.
-    // Intercept in capture phase and write directly to the PTY as a fallback.
+    // Advanced macOS & custom shortcut interceptor
     const handleKeyDown = (e: KeyboardEvent) => {
       const active = document.activeElement;
       if (!active || !el.contains(active)) return;
+
+      const currentId = idRef.current;
+
+      // Option + Backspace -> Delete Word Backward (\x17 or \x1b\x7f)
+      if (e.altKey && e.key === "Backspace") {
+        e.preventDefault();
+        e.stopPropagation();
+        writePty(currentId, "\x17").catch(() => {});
+        return;
+      }
+
+      // Cmd + Backspace -> Clear Line to Left (\x15 - Unix kill line backward)
+      if ((e.metaKey || e.ctrlKey) && e.key === "Backspace") {
+        e.preventDefault();
+        e.stopPropagation();
+        writePty(currentId, "\x15").catch(() => {});
+        return;
+      }
+
+      // Cmd + K -> Clear terminal buffer
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        e.stopPropagation();
+        term.clear();
+        writePty(currentId, "\x0c").catch(() => {});
+        return;
+      }
+
+      // Option + Left -> Move Word Backward (\x1bb)
+      if (e.altKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        e.stopPropagation();
+        writePty(currentId, "\x1bb").catch(() => {});
+        return;
+      }
+
+      // Option + Right -> Move Word Forward (\x1bf)
+      if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        e.stopPropagation();
+        writePty(currentId, "\x1bf").catch(() => {});
+        return;
+      }
+
+      // Cmd + Left -> Beginning of Line (\x01 - Ctrl+A)
+      if ((e.metaKey || e.ctrlKey) && e.key === "ArrowLeft") {
+        e.preventDefault();
+        e.stopPropagation();
+        writePty(currentId, "\x01").catch(() => {});
+        return;
+      }
+
+      // Cmd + Right -> End of Line (\x05 - Ctrl+E)
+      if ((e.metaKey || e.ctrlKey) && e.key === "ArrowRight") {
+        e.preventDefault();
+        e.stopPropagation();
+        writePty(currentId, "\x05").catch(() => {});
+        return;
+      }
+
+      // Cmd + C -> Copy selected text if any
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c" && term.hasSelection()) {
+        const sel = term.getSelection();
+        navigator.clipboard.writeText(sel);
+        return;
+      }
+
+      // Cmd + V -> Paste from clipboard
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") {
+        navigator.clipboard.readText().then((clip) => {
+          if (clip) writePty(currentId, clip).catch(() => {});
+        }).catch(() => {});
+        return;
+      }
+
+      // Regular Backspace fallback for macOS WKWebView
       if (e.key === "Backspace") {
         e.preventDefault();
         e.stopPropagation();
-        writePty(idRef.current, "\x7f").catch(() => {});
+        writePty(currentId, "\x7f").catch(() => {});
       } else if (e.key === "Delete") {
         e.preventDefault();
         e.stopPropagation();
-        writePty(idRef.current, "\x1b[3~").catch(() => {});
+        writePty(currentId, "\x1b[3~").catch(() => {});
       }
     };
-    el.addEventListener("keydown", handleKeyDown, true);
 
-    // Clicking anywhere in the terminal host should focus the xterm textarea.
+    el.addEventListener("keydown", handleKeyDown, true);
     const handleClick = () => term.focus();
     el.addEventListener("click", handleClick);
 
@@ -79,7 +166,7 @@ export default function TerminalPane({ id, cwd, visible }: TerminalPaneProps) {
     const onData = term.onData((data) => writePty(id, data));
 
     spawnPty(id, cwd, term.cols, term.rows).catch((err) =>
-      term.write(`\r\nfailed to start shell: ${err}\r\n`),
+      term.write(`\r\nfailed to start shell: ${err}\r\n`)
     );
 
     const resizeObserver = new ResizeObserver(() => {
